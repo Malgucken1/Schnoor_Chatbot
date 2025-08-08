@@ -46,16 +46,15 @@ llm = ChatOpenAI(model="gpt-4o", temperature=0)
 # pulling prompt from hub
 prompt = hub.pull("hwchase17/openai-functions-agent")
 
+
 # creating the retriever tool
-@tool(response_format="text")
+@tool(response_format="content_and_artifact")
 def retrieve(query: str):
     """Retrieve information related to a query."""
     retrieved_docs = vector_store.similarity_search(query, k=2)
-    parts = []
-    for doc in retrieved_docs:
-        source = doc.metadata.get("source", "Unbekannte Quelle")
-        parts.append(f"{doc.page_content}\n\n<span style='color:gray; font-size:small; cursor:help;' title='{source}'>Quelle</span>")
-    return "\n\n---\n\n".join(parts)
+    content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+    sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
+    return content, {"sources": sources}
 
 # combining all tools
 tools = [retrieve]
@@ -68,7 +67,7 @@ agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # initiating streamlit app
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🦜")
-st.title("🦜 Schnoor - Agentic RAG Chatbot")
+st.title("🦜 Agentic RAG Chatbot")
 
 # initialize chat history
 if "messages" not in st.session_state:
@@ -84,7 +83,7 @@ for message in st.session_state.messages:
             st.markdown(message.content, unsafe_allow_html=True)
 
 # create the bar where we can type messages
-user_question = st.chat_input("How are you?")
+user_question = st.chat_input("Frag mich was!")
 
 # did the user submit a prompt?
 if user_question:
@@ -101,7 +100,18 @@ if user_question:
 
     # adding the response from the llm to the screen (and chat)
     with st.chat_message("assistant"):
-        st.markdown(ai_message, unsafe_allow_html=True)
+        # Quellen aus den Artefakten holen
+        sources = result.get("artifacts", {}).get("sources", [])
+        if sources:
+            quelle_html = "<br>".join(
+                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
+                for src in sources
+            )
+            st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
+        else:
+            st.markdown(ai_message, unsafe_allow_html=True)
 
+    # save AI message in session state
     st.session_state.messages.append(AIMessage(ai_message))
+
 
