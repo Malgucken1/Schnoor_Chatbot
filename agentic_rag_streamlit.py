@@ -52,13 +52,9 @@ prompt = hub.pull("hwchase17/openai-functions-agent")
 def retrieve(query: str):
     """Retrieve information related to a query."""
     retrieved_docs = vector_store.similarity_search(query, k=2)
-    serialized = "\n\n".join(
-        # Hier das Wort "Quelle" mit grauer, kleiner Schrift und Tooltip mit PDF-Namen:
-        f"Content: {doc.page_content}\n\n"
-        f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
-        for doc in retrieved_docs
-    )
-    return serialized, retrieved_docs
+    content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+    sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
+    return content, {"sources": sources}
 
 # combining all tools
 tools = [retrieve]
@@ -71,7 +67,7 @@ agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # initiating streamlit app
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🦜")
-st.title("🦜 Schnoor - Agentic RAG Chatbot")
+st.title("🦜 Agentic RAG Chatbot")
 
 # initialize chat history
 if "messages" not in st.session_state:
@@ -105,7 +101,17 @@ if user_question:
 
     # adding the response from the llm to the screen (and chat)
     with st.chat_message("assistant"):
-        st.markdown(ai_message, unsafe_allow_html=True)
-        st.session_state.messages.append(AIMessage(ai_message))
+        # Quellen aus den Artefakten holen
+        sources = result.get("artifacts", {}).get("sources", [])
+        if sources:
+            quelle_html = "<br>".join(
+                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
+                for src in sources
+            )
+            # Antwort + Quellen anzeigen
+            st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
+        else:
+            # Falls keine Quellen da sind, nur Antwort zeigen
+            st.markdown(ai_message, unsafe_allow_html=True)
 
-
+    st.session_state.messages.append(AIMessage(ai_message))
