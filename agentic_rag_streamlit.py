@@ -54,6 +54,14 @@ tools = [retrieve]
 agent = create_tool_calling_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
+# Hilfsfunktion, um Chat-Titel aus erstem Prompt zu generieren
+def generate_chat_title(first_prompt: str) -> str:
+    response = llm.predict(f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'")
+    title = response.strip().strip('"').strip("'")
+    if not title:
+        title = f"Chat {len(st.session_state.chats) + 1}"
+    return title
+
 # Streamlit UI Setup
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 st.title("🤖 Schnoor´s Chatbot")
@@ -75,9 +83,10 @@ with st.sidebar:
     st.session_state.current_chat = selected_chat
 
     if st.button("Neuen Chat erstellen"):
-        new_chat_name = f"Chat {len(st.session_state.chats) + 1}"
-        st.session_state.chats[new_chat_name] = []
-        st.session_state.current_chat = new_chat_name
+        # Platzhaltername für neuen Chat
+        placeholder_chat_name = f"Chat {len(st.session_state.chats) + 1} (neuer Chat)"
+        st.session_state.chats[placeholder_chat_name] = []
+        st.session_state.current_chat = placeholder_chat_name
 
     st.markdown("---")
 
@@ -109,12 +118,23 @@ for message in st.session_state.chats[st.session_state.current_chat]:
 user_question = st.chat_input("Frag mich was!")
 
 if user_question:
-    st.session_state.chats[st.session_state.current_chat].append(HumanMessage(user_question))
+    current = st.session_state.current_chat
+
+    # Wenn wir uns im Platzhalterchat befinden, generiere Titel basierend auf erstem Prompt
+    if current.endswith("(neuer Chat)"):
+        new_title = generate_chat_title(user_question)
+        # Chat unter neuem Titel anlegen, alten Platzhalterchat entfernen
+        st.session_state.chats[new_title] = st.session_state.chats.pop(current)
+        st.session_state.current_chat = new_title
+        current = new_title
+
+    # Userfrage speichern
+    st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
 
     with st.spinner("Agent antwortet..."):
-        result = agent_executor.invoke({"input": user_question, "chat_history": st.session_state.chats[st.session_state.current_chat]})
+        result = agent_executor.invoke({"input": user_question, "chat_history": st.session_state.chats[current]})
 
     ai_message = result["output"]
     with st.chat_message("assistant"):
@@ -128,6 +148,4 @@ if user_question:
         else:
             st.markdown(ai_message, unsafe_allow_html=True)
 
-    st.session_state.chats[st.session_state.current_chat].append(AIMessage(ai_message))
-
-
+    st.session_state.chats[current].append(AIMessage(ai_message))
