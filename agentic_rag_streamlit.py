@@ -39,8 +39,7 @@ Du solltest daher zuerst das Tool 'retrieve' verwenden, um relevante Information
 - Wenn keine passenden Informationen gefunden werden, dann kannst du dein eigenes Wissen nutzen.
 Gib, wenn möglich, am Ende immer die Quellen an, die aus der Datenbank kommen.
 """),
-    ("user", "{input}"),
-    ("system", "Vorherige Chat-Historie:\n{chat_history}")
+    ("user", "{input}")
 ])
 
 @tool  # ohne response_format
