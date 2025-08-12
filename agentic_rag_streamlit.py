@@ -36,13 +36,14 @@ llm = ChatOpenAI(model="gpt-4o", temperature=0)
 prompt = ChatPromptTemplate.from_messages([
     ("system", """Du bist Schnoor, ein hilfreicher Chatbot.
 Du solltest daher zuerst das Tool 'retrieve' verwenden, um relevante Informationen aus der Supabase-Datenbank zu holen. 
-Mit anderen Worten solltest du das meiste daher ersteinmal auf Schnoor beziehen. 
 - Wenn passende Informationen gefunden werden, nutze diese zur Beantwortung.
 - Wenn keine passenden Informationen gefunden werden, dann kannst du dein eigenes Wissen nutzen.
 Gib, wenn möglich, am Ende immer die Quellen an, die aus der Datenbank kommen.
 """),
-    ("user", "{input}")
+    ("user", "{input}"),
+    ("system", "Vorherige Chat-Historie:\n{chat_history}")
 ])
+
 
 @tool  # ohne response_format
 def retrieve(query: str):
@@ -131,9 +132,9 @@ if user_question:
     with st.chat_message("user"):
         st.markdown(user_question)
 
-    with st.spinner("Agent antwortet..."):
+    with st.spinner("Agent antwortet..."): 
         result = agent_executor.invoke({"input": user_question, "chat_history": st.session_state.chats[st.session_state.current_chat]})
-
+        
     ai_message = result["output"]
     with st.chat_message("assistant"):
         sources = result.get("artifacts", {}).get("sources", [])
