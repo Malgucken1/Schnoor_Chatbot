@@ -55,8 +55,8 @@ agent = create_tool_calling_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # Streamlit UI Setup
-st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🦜")
-st.title("🦜 Schnoor - Agentic RAG Chatbot")
+st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
+st.title("🤖 Schnoor´s Chatbot")
 
 # SESSION STATE INITIALIZATION
 if "chats" not in st.session_state:
