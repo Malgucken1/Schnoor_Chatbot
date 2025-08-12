@@ -6,7 +6,6 @@ import streamlit as st
 from langchain.agents import AgentExecutor
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent
-from langchain import hub
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.tools import tool
@@ -43,7 +42,6 @@ Gib, wenn möglich, am Ende immer die Quellen an, die aus der Datenbank kommen.
     ("user", "{input}"),
     ("system", "Vorherige Chat-Historie:\n{chat_history}")
 ])
-
 
 @tool  # ohne response_format
 def retrieve(query: str):
@@ -127,14 +125,28 @@ for message in st.session_state.chats[st.session_state.current_chat]:
 # User Input
 user_question = st.chat_input("Frag mich was!")
 
+def format_chat_history(messages):
+    formatted = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            formatted.append(f"User: {msg.content}")
+        elif isinstance(msg, AIMessage):
+            formatted.append(f"Assistant: {msg.content}")
+    return "\n".join(formatted)
+
 if user_question:
     st.session_state.chats[st.session_state.current_chat].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
 
-    with st.spinner("Agent antwortet..."): 
-        result = agent_executor.invoke({"input": user_question, "chat_history": st.session_state.chats[st.session_state.current_chat]})
-        
+    chat_history_str = format_chat_history(st.session_state.chats[st.session_state.current_chat])
+
+    with st.spinner("Agent antwortet..."):
+        result = agent_executor.invoke({
+            "input": user_question,
+            "chat_history": chat_history_str
+        })
+
     ai_message = result["output"]
     with st.chat_message("assistant"):
         sources = result.get("artifacts", {}).get("sources", [])
@@ -148,12 +160,3 @@ if user_question:
             st.markdown(ai_message, unsafe_allow_html=True)
 
     st.session_state.chats[st.session_state.current_chat].append(AIMessage(ai_message))
-
-
-
-
-   
-
-   
- 
-       
