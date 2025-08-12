@@ -12,6 +12,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain.prompts import ChatPromptTemplate
 
 # load environment variables
 load_dotenv()
@@ -32,7 +33,16 @@ vector_store = SupabaseVectorStore(
 
 # llm & prompt & agent
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
-prompt = hub.pull("hwchase17/openai-functions-agent")
+prompt = ChatPromptTemplate.from_messages([
+    ("system", """Du bist Schnoor, ein hilfreicher Chatbot.
+Du solltest daher zuerst das Tool 'retrieve' verwenden, um relevante Informationen aus der Supabase-Datenbank zu holen. 
+Mit anderen Worten solltest du das meiste daher ersteinmal auf Schnoor beziehen. 
+- Wenn passende Informationen gefunden werden, nutze diese zur Beantwortung.
+- Wenn keine passenden Informationen gefunden werden, dann kannst du dein eigenes Wissen nutzen.
+Gib, wenn möglich, am Ende immer die Quellen an, die aus der Datenbank kommen.
+"""),
+    ("user", "{input}")
+])
 
 @tool  # ohne response_format
 def retrieve(query: str):
@@ -47,7 +57,15 @@ def retrieve(query: str):
     """
     retrieved_docs = vector_store.similarity_search(query, k=2)
     content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-    sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
+
+    sources = []
+    for doc in retrieved_docs:
+        meta = doc.metadata or {}
+        title = meta.get("title", "Unbekannter Titel")
+        page = meta.get("page", "?")
+        file_source = meta.get("source", "Unbekannte Datei")
+        sources.append(f"{title} – Seite {page} – {file_source}")
+
     return content, {"sources": sources}
 
 tools = [retrieve]
@@ -55,8 +73,8 @@ agent = create_tool_calling_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # Streamlit UI Setup
-st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🦜")
-st.title("🦜 Schnoor - Agentic RAG Chatbot")
+st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
+st.title("🤖 Schnoor´s Chatbot")
 
 # SESSION STATE INITIALIZATION
 if "chats" not in st.session_state:
