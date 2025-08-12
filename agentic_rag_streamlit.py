@@ -142,9 +142,8 @@ if user_question:
 
     with st.spinner("Agent antwortet..."):
         result = agent_executor.invoke({
-            "input": user_question})
+            "input": user_question
         })
-
 
     ai_message = result["output"]
     with st.chat_message("assistant"):
