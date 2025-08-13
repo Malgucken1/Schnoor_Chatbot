@@ -1,6 +1,9 @@
 import os
 from dotenv import load_dotenv
 import streamlit as st
+import io
+from PyPDF2 import PdfReader
+import docx
 
 # langchain imports
 from langchain.agents import AgentExecutor
@@ -68,7 +71,6 @@ st.title("🤖 Schnoor´s Chatbot")
 
 # SESSION STATE INITIALIZATION
 if "chats" not in st.session_state:
-    # Erstes Chat-Element als Platzhalter
     st.session_state.chats = {"Neuer Chat": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Neuer Chat"
@@ -84,7 +86,6 @@ with st.sidebar:
     st.session_state.current_chat = selected_chat
 
     if st.button("Neuen Chat erstellen"):
-        # Platzhaltername für neuen Chat
         placeholder_chat_name = f"Chat {len(st.session_state.chats) + 1} (neuer Chat)"
         st.session_state.chats[placeholder_chat_name] = []
         st.session_state.current_chat = placeholder_chat_name
@@ -94,9 +95,23 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
     if uploaded_file is not None:
         try:
-            content = uploaded_file.read().decode("utf-8")
-        except Exception:
-            content = "<Datei konnte nicht als Text gelesen werden>"
+            if uploaded_file.type == "text/plain":
+                # TXT-Dateien
+                content = uploaded_file.read().decode("utf-8")
+            elif uploaded_file.type == "application/pdf":
+                # PDF-Dateien
+                pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
+                content = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+            elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/msword"]:
+                # DOCX-Dateien
+                doc = docx.Document(io.BytesIO(uploaded_file.read()))
+                content = "\n".join([para.text for para in doc.paragraphs])
+            else:
+                content = "<Dateityp wird nicht unterstützt>"
+        except Exception as e:
+            content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
+
         st.write(f"**Datei-Inhalt (erste 500 Zeichen):**")
         st.write(content[:500])
 
@@ -121,15 +136,12 @@ user_question = st.chat_input("Frag mich was!")
 if user_question:
     current = st.session_state.current_chat
 
-    # Wenn wir uns im Platzhalterchat befinden, generiere Titel basierend auf erstem Prompt
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
-        # Chat unter neuem Titel anlegen, alten Platzhalterchat entfernen
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
         st.session_state.current_chat = new_title
         current = new_title
 
-    # Userfrage speichern
     st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
