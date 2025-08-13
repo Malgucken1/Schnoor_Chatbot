@@ -68,9 +68,10 @@ st.title("🤖 Schnoor´s Chatbot")
 
 # SESSION STATE INITIALIZATION
 if "chats" not in st.session_state:
-    st.session_state.chats = {"Chat 1": []}
+    # Erstes Chat-Element als Platzhalter
+    st.session_state.chats = {"Neuer Chat": []}
 if "current_chat" not in st.session_state:
-    st.session_state.current_chat = "Chat 1"
+    st.session_state.current_chat = "Neuer Chat"
 
 # SIDEBAR mit Chat-Verzeichnis und Datei-Upload
 with st.sidebar:
@@ -121,7 +122,7 @@ if user_question:
     current = st.session_state.current_chat
 
     # Wenn wir uns im Platzhalterchat befinden, generiere Titel basierend auf erstem Prompt
-    if current.endswith("(neuer Chat)"):
+    if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         # Chat unter neuem Titel anlegen, alten Platzhalterchat entfernen
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
