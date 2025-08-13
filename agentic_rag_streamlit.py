@@ -150,15 +150,20 @@ if user_question:
         result = agent_executor.invoke({"input": user_question, "chat_history": st.session_state.chats[current]})
 
     ai_message = result["output"]
-    with st.chat_message("assistant"):
-        sources = result.get("artifacts", {}).get("sources", [])
-        if sources:
-            quelle_html = "<br>".join(
-                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
-                for src in sources
-            )
-            st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
-        else:
-            st.markdown(ai_message, unsafe_allow_html=True)
+sources = result.get("artifacts", {}).get("sources", [])
+
+# Nur eindeutige, nicht-leere Quellen
+unique_sources = list(dict.fromkeys(filter(None, sources)))
+
+with st.chat_message("assistant"):
+    if unique_sources:
+        # HTML für konsistente Anzeige am Ende
+        quelle_html = "<br>".join(
+            f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
+            for src in unique_sources
+        )
+        st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
+    else:
+        st.markdown(ai_message, unsafe_allow_html=True)
 
     st.session_state.chats[current].append(AIMessage(ai_message))
