@@ -19,29 +19,10 @@ from langchain_core.messages import HumanMessage, AIMessage
 # load environment variables
 load_dotenv()
 
-# embeddings & vectorstore
-@st.cache_resource
-def get_vector_store():
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    return SupabaseVectorStore(
-        embedding=embeddings,
-        client=supabase,
-        table_name="documents",
-        query_name="match_documents",
-    )
-
-# llm & prompt & agent
-@st.cache_resource
-def get_agent_executor():
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    prompt = hub.pull("hwchase17/openai-functions-agent")
-    tools = [retrieve]
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-# dann so nutzen:
-vector_store = get_vector_store()
-agent_executor = get_agent_executor()
+# supabase init
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+supabase: Client = create_client(supabase_url, supabase_key)
 
 # ----- Retrieval Tool -----
 @tool(response_format="content_and_artifact")
@@ -60,10 +41,28 @@ def retrieve(query: str):
     
     return serialized_content, retrieved_docs
 
-# tools & agent executor
-tools = [retrieve]
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+# ----- Caching -----
+@st.cache_resource
+def get_vector_store():
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    return SupabaseVectorStore(
+        embedding=embeddings,
+        client=supabase,
+        table_name="documents",
+        query_name="match_documents",
+    )
+
+@st.cache_resource
+def get_agent_executor():
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    prompt = hub.pull("hwchase17/openai-functions-agent")
+    tools = [retrieve]
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True), llm, prompt
+
+# ----- Initialisierung -----
+vector_store = get_vector_store()
+agent_executor, llm, prompt = get_agent_executor()
 
 # ----- Hilfsfunktion für Chat-Titel -----
 def generate_chat_title(first_prompt: str) -> str:
@@ -103,8 +102,8 @@ with st.sidebar:
     st.markdown("---")
 
     uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
-file_content = None
 
+file_content = None
 if uploaded_file is not None:
     try:
         if uploaded_file.type == "text/plain":
