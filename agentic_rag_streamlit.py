@@ -46,11 +46,12 @@ def init_agent():
     def retrieve(query: str):
         retrieved_docs = vector_store.similarity_search(query, k=2)
         serialized_content = "\n\n".join(
-            f"Content: {doc.page_content}\n\n"
-            f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
+            f"Content: {doc.page_content}\n\nQuelle: {os.path.basename(doc.metadata.get('source', 'Unbekannte Quelle'))}"
             for doc in retrieved_docs
         )
-        return serialized_content, retrieved_docs
+        # Als Artifact geben wir nur Dateinamen zurück
+        sources = [os.path.basename(doc.metadata.get("source", "Unbekannte Quelle")) for doc in retrieved_docs]
+        return serialized_content, sources
 
     tools = [retrieve]
     agent = create_tool_calling_agent(llm, tools, prompt)
@@ -158,14 +159,11 @@ if user_question:
     unique_sources = list(dict.fromkeys(filter(None, sources)))
 
     with st.chat_message("assistant"):
-        if unique_sources:
-            quelle_html = "<br>".join(
-                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
-                for src in unique_sources
-            )
-            st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
-        else:
-            st.markdown(ai_message, unsafe_allow_html=True)
+    if unique_sources:
+        quelle_text = "\n".join(f"Quelle: {src}" for src in unique_sources)
+        st.markdown(f"{ai_message}\n\n{quelle_text}")
+    else:
+        st.markdown(ai_message)
 
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
