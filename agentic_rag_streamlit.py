@@ -94,41 +94,39 @@ with st.sidebar:
     st.markdown("---")
 
     from langchain.text_splitter import RecursiveCharacterTextSplitter
+    
+ # Datei-Upload in Sidebar
+    uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.type == "text/plain":
+                content = uploaded_file.read().decode("utf-8")
+            elif uploaded_file.type == "application/pdf":
+                pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
+                content = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+            elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/msword"]:
+                doc = docx.Document(io.BytesIO(uploaded_file.read()))
+                content = "\n".join([para.text for para in doc.paragraphs])
+            else:
+                content = "<Dateityp wird nicht unterstützt>"
+        except Exception as e:
+            content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
 
-# Datei-Upload in Sidebar
-uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
-if uploaded_file is not None:
-    try:
-        if uploaded_file.type == "text/plain":
-            content = uploaded_file.read().decode("utf-8")
-        elif uploaded_file.type == "application/pdf":
-            pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
-            content = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
-        elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    "application/msword"]:
-            doc = docx.Document(io.BytesIO(uploaded_file.read()))
-            content = "\n".join([para.text for para in doc.paragraphs])
-        else:
-            content = "<Dateityp wird nicht unterstützt>"
-    except Exception as e:
-        content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
+        # Anzeige nur der Dateiinformation
+        st.write(f"**Datei hochgeladen: {uploaded_file.name}**")
 
-    # Anzeige nur der Dateiinformation, nicht des gesamten Inhalts
-    st.write(f"**Datei hochgeladen: {uploaded_file.name}**")
+        # Datei in Chunks aufteilen
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200
+        )
+        chunks = text_splitter.split_text(content)
 
-    # Datei automatisch in Chunks aufteilen
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,  # Länge pro Chunk (Tokens/Textzeichen)
-        chunk_overlap=200  # Überlappung zwischen Chunks für Kontext
-    )
-    chunks = text_splitter.split_text(content)
-
-    if st.button("Datei-Inhalt zum Chat hinzufügen"):
-        # Jeden Chunk als eigene HumanMessage hinzufügen
-        for chunk in chunks:
-            st.session_state.chats[st.session_state.current_chat].append(HumanMessage(chunk))
-        st.success(f"{len(chunks)} Chunks zum Chat hinzugefügt!")
-
+        if st.button("Datei-Inhalt zum Chat hinzufügen"):
+            for chunk in chunks:
+                st.session_state.chats[st.session_state.current_chat].append(HumanMessage(chunk))
+            st.success(f"{len(chunks)} Chunks zum Chat hinzugefügt!")
 
 # Chatverlauf anzeigen
 for message in st.session_state.chats[st.session_state.current_chat]:
