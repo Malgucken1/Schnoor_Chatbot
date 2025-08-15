@@ -51,7 +51,8 @@ def retrieve(query: str):
     retrieved_docs = vector_store.similarity_search(query, k=2)
     content = "\n\n".join(doc.page_content for doc in retrieved_docs)
     sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
-    return content, {"sources": sources}
+    return {"content": content, "sources": sources}
+
 
 tools = [retrieve]
 agent = create_tool_calling_agent(llm, tools, prompt)
