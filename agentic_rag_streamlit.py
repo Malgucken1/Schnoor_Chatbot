@@ -16,52 +16,53 @@ from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_core.messages import HumanMessage, AIMessage
 
-# load environment variables
+# ---- Load environment variables ----
 load_dotenv()
 
-# supabase init
+# ---- Initialize Supabase ----
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
-# embeddings & vectorstore
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-vector_store = SupabaseVectorStore(
-    embedding=embeddings,
-    client=supabase,
-    table_name="documents",
-    query_name="match_documents",
-)
-
-# llm & prompt & agent
-llm = ChatOpenAI(model="gpt-4o", temperature=0)
-prompt = hub.pull("hwchase17/openai-functions-agent")
-
-# ----- Retrieval Tool -----
-@tool(response_format="content_and_artifact")
-def retrieve(query: str):
-    """
-    Retrieve information related to a query from the vector store.
-    Returns content and sources with HTML tooltip.
-    """
-    retrieved_docs = vector_store.similarity_search(query, k=2)
-    
-    serialized_content = "\n\n".join(
-        f"Content: {doc.page_content}\n\n"
-        f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
-        for doc in retrieved_docs
+# ---- Cached initializations ----
+@st.cache_resource
+def init_embeddings_vectorstore():
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    vector_store = SupabaseVectorStore(
+        embedding=embeddings,
+        client=supabase,
+        table_name="documents",
+        query_name="match_documents",
     )
+    return vector_store
+
+@st.cache_resource
+def init_agent():
+    vector_store = init_embeddings_vectorstore()
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    prompt = hub.pull("hwchase17/openai-functions-agent")
     
-    return serialized_content, retrieved_docs
+    @tool(response_format="content_and_artifact")
+    def retrieve(query: str):
+        retrieved_docs = vector_store.similarity_search(query, k=2)
+        serialized_content = "\n\n".join(
+            f"Content: {doc.page_content}\n\n"
+            f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
+            for doc in retrieved_docs
+        )
+        return serialized_content, retrieved_docs
 
-# tools & agent executor
-tools = [retrieve]
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    tools = [retrieve]
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    return agent_executor
 
-# ----- Hilfsfunktion für Chat-Titel -----
+# ---- Initialize AgentExecutor only once ----
+agent_executor = init_agent()
+
+# ---- Helper for chat titles ----
 def generate_chat_title(first_prompt: str) -> str:
-    response = llm.predict(
+    response = agent_executor.agent.llm.predict(
         f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
     )
     title = response.strip().strip('"').strip("'")
@@ -69,17 +70,17 @@ def generate_chat_title(first_prompt: str) -> str:
         title = f"Chat {len(st.session_state.chats) + 1}"
     return title
 
-# ----- Streamlit UI -----
+# ---- Streamlit UI ----
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 st.title("🤖 Schnoor´s Chatbot")
 
-# SESSION STATE INITIALIZATION
+# ---- Session State ----
 if "chats" not in st.session_state:
     st.session_state.chats = {"Neuer Chat": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Neuer Chat"
 
-# SIDEBAR mit Chat-Verzeichnis und Datei-Upload
+# ---- Sidebar ----
 with st.sidebar:
     st.header("Chats")
     selected_chat = st.selectbox(
@@ -116,12 +117,12 @@ if uploaded_file is not None:
             file_content = "<Dateityp wird nicht unterstützt>"
     except Exception as e:
         file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
-    
+
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
         st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
         st.success("Datei-Inhalt zum Chat hinzugefügt!")
 
-# Chatverlauf anzeigen
+# ---- Chatverlauf anzeigen ----
 for message in st.session_state.chats[st.session_state.current_chat]:
     if isinstance(message, HumanMessage):
         with st.chat_message("user"):
@@ -130,7 +131,7 @@ for message in st.session_state.chats[st.session_state.current_chat]:
         with st.chat_message("assistant"):
             st.markdown(message.content, unsafe_allow_html=True)
 
-# User Input
+# ---- User Input ----
 user_question = st.chat_input("Frag mich was!")
 
 if user_question:
@@ -152,7 +153,6 @@ if user_question:
             "chat_history": st.session_state.chats[current]
         })
 
-    # AI-Nachricht und Quellen
     ai_message = result["output"]
     sources = result.get("sources", [])
     unique_sources = list(dict.fromkeys(filter(None, sources)))
@@ -167,5 +167,4 @@ if user_question:
         else:
             st.markdown(ai_message, unsafe_allow_html=True)
 
-    # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
