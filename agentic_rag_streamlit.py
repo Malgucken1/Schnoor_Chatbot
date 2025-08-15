@@ -97,30 +97,30 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ---- Datei Upload in Sidebar ----
     uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
-file_content = None
+    if uploaded_file is not None:
+        file_content = None
+        try:
+            if uploaded_file.type == "text/plain":
+                file_content = uploaded_file.read().decode("utf-8")
+            elif uploaded_file.type == "application/pdf":
+                pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
+                file_content = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+            elif uploaded_file.type in [
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/msword"
+            ]:
+                doc = docx.Document(io.BytesIO(uploaded_file.read()))
+                file_content = "\n".join([para.text for para in doc.paragraphs])
+            else:
+                file_content = "<Dateityp wird nicht unterstützt>"
+        except Exception as e:
+            file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
 
-if uploaded_file is not None:
-    try:
-        if uploaded_file.type == "text/plain":
-            file_content = uploaded_file.read().decode("utf-8")
-        elif uploaded_file.type == "application/pdf":
-            pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
-            file_content = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
-        elif uploaded_file.type in [
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/msword"
-        ]:
-            doc = docx.Document(io.BytesIO(uploaded_file.read()))
-            file_content = "\n".join([para.text for para in doc.paragraphs])
-        else:
-            file_content = "<Dateityp wird nicht unterstützt>"
-    except Exception as e:
-        file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
-
-    if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
-        st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
-        st.success("Datei-Inhalt zum Chat hinzugefügt!")
+        if file_content and st.button("Datei-Inhalt zum Chat hinzufügen"):
+            st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
+            st.success("Datei-Inhalt zum Chat hinzugefügt!")
 
 # ---- Chatverlauf anzeigen ----
 for message in st.session_state.chats[st.session_state.current_chat]:
