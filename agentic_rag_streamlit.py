@@ -37,36 +37,39 @@ vector_store = SupabaseVectorStore(
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 prompt = hub.pull("hwchase17/openai-functions-agent")
 
-@tool  # ohne response_format
+# ----- Retrieval Tool -----
+@tool(response_format="content_and_artifact")
 def retrieve(query: str):
     """
     Retrieve information related to a query from the vector store.
-
-    Args:
-        query (str): The query string.
-
-    Returns:
-        Tuple[str, dict]: Content string and dictionary with sources.
+    Returns content and sources with HTML tooltip.
     """
     retrieved_docs = vector_store.similarity_search(query, k=2)
-    content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-    sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
-    return {"content": content, "sources": sources}
+    
+    serialized_content = "\n\n".join(
+        f"Content: {doc.page_content}\n\n"
+        f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
+        for doc in retrieved_docs
+    )
+    
+    return serialized_content, retrieved_docs
 
-
+# tools & agent executor
 tools = [retrieve]
 agent = create_tool_calling_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-# Hilfsfunktion, um Chat-Titel aus erstem Prompt zu generieren
+# ----- Hilfsfunktion für Chat-Titel -----
 def generate_chat_title(first_prompt: str) -> str:
-    response = llm.predict(f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'")
+    response = llm.predict(
+        f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
+    )
     title = response.strip().strip('"').strip("'")
     if not title:
         title = f"Chat {len(st.session_state.chats) + 1}"
     return title
 
-# Streamlit UI Setup
+# ----- Streamlit UI -----
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 st.title("🤖 Schnoor´s Chatbot")
 
@@ -113,7 +116,7 @@ if uploaded_file is not None:
             file_content = "<Dateityp wird nicht unterstützt>"
     except Exception as e:
         file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
-
+    
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
         st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
         st.success("Datei-Inhalt zum Chat hinzugefügt!")
@@ -149,11 +152,9 @@ if user_question:
             "chat_history": st.session_state.chats[current]
         })
 
-    # AI-Nachricht und Quellen nur hier verarbeiten
+    # AI-Nachricht und Quellen
     ai_message = result["output"]
-    sources = result.get("sources", [])  # <-- jetzt sicher, dass result existiert
-
-    # Nur eindeutige, nicht-leere Quellen
+    sources = result.get("sources", [])
     unique_sources = list(dict.fromkeys(filter(None, sources)))
 
     with st.chat_message("assistant"):
