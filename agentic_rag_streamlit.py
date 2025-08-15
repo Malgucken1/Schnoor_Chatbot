@@ -93,7 +93,7 @@ with st.sidebar:
 
     st.markdown("---")
 
- uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
+    uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
 file_content = None
 
 if uploaded_file is not None:
@@ -117,7 +117,6 @@ if uploaded_file is not None:
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
         st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
         st.success("Datei-Inhalt zum Chat hinzugefügt!")
-
 
 # Chatverlauf anzeigen
 for message in st.session_state.chats[st.session_state.current_chat]:
