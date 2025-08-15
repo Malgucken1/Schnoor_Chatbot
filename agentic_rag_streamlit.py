@@ -1,7 +1,8 @@
 import os
+import io
+import html
 from dotenv import load_dotenv
 import streamlit as st
-import io
 from PyPDF2 import PdfReader
 import docx
 
@@ -40,33 +41,125 @@ def init_agent():
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
     prompt = hub.pull("hwchase17/openai-functions-agent")
 
+    # Wichtig: Wir geben Content (für das LLM) und Artefakt (für UI-Quellenanzeige) zurück
     @tool(response_format="content_and_artifact")
     def retrieve(query: str):
-        retrieved_docs = vector_store.similarity_search(query, k=2)
+        """
+        Retrieve information related to a query from the vector store.
+        Returns HTML-ready content (mit Inline-Quelle) und ein Artefakt mit Roh-Quellen.
+        """
+        retrieved_docs = vector_store.similarity_search(query, k=4)
+
+        # Content an das LLM (kann ignoriert/umformuliert werden – deshalb UI-seitige Extraktion!)
         serialized_content = "\n\n".join(
             f"Content: {doc.page_content}\n\n"
-            f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
+            f"<span style='color:gray; font-size:small; cursor:help;' "
+            f"title='{html.escape(str(doc.metadata.get('source', 'Unbekannte Quelle')), quote=True)}'>Quelle</span>"
             for doc in retrieved_docs
         )
-        return serialized_content, retrieved_docs
+
+        # Artefakt: möglichst roh & stabil
+        artifact = []
+        for doc in retrieved_docs:
+            artifact.append({
+                "source": str(doc.metadata.get("source", "Unbekannte Quelle")),
+                "page": doc.metadata.get("page", None),
+                "score": getattr(doc, "score", None),
+            })
+
+        return serialized_content, artifact
 
     tools = [retrieve]
     agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+    # WICHTIG: intermediate_steps zurückgeben, damit wir die Artefakte auslesen können
+    agent_executor = AgentExecutor(
+        agent=agent,
+        tools=tools,
+        verbose=True,
+        return_intermediate_steps=True,
+    )
     return agent_executor
 
 # ---- Initialize once ----
 agent_executor = init_agent()
 
-# ---- Helper for chat titles ----
+# ---- Helper: Chat-Titel ----
 def generate_chat_title(first_prompt: str) -> str:
-    response = agent_executor.agent.llm.predict(
-        f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
-    )
-    title = response.strip().strip('"').strip("'")
-    if not title:
-        title = f"Chat {len(st.session_state.chats) + 1}"
-    return title
+    # Kleiner, robuster Titelgenerator
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    title = llm.predict(
+        f"Erzeuge einen sehr kurzen Titel für einen Chat basierend auf: '{first_prompt}'. "
+        f"Keine Anführungszeichen, max. 6 Wörter."
+    ).strip()
+    return title or f"Chat {len(st.session_state.chats) + 1}"
+
+# ---- Helper: Quellen aus intermediate_steps extrahieren ----
+def build_sources_html_from_steps(result_dict) -> str:
+    """
+    Sucht in den intermediate_steps nach Tool-Outputs mit Artefakten.
+    Erwartet eine Liste von Dicts [{'source': ...}, ...] oder Ähnliches.
+    Baut die Tooltip-HTML zusammen. Dedupliziert Quellen.
+    """
+    steps = result_dict.get("intermediate_steps", []) or []
+    found_sources = []
+
+    for step in steps:
+        # step kann Tuple (action, observation) oder Dict sein; wir handeln defensiv
+        action = None
+        observation = None
+        if isinstance(step, (list, tuple)) and len(step) == 2:
+            action, observation = step
+        else:
+            observation = step
+
+        # Versuche, ein "artifact" Feld zu bekommen (ToolMessage-ähnlich oder Dict)
+        artifact = None
+        # 1) Wenn observation ein Objekt mit Attribut 'artifact' ist
+        if hasattr(observation, "artifact"):
+            artifact = getattr(observation, "artifact", None)
+        # 2) Wenn observation ein Dict ist
+        if artifact is None and isinstance(observation, dict):
+            artifact = observation.get("artifact") or observation.get("tool_output")
+
+        # 3) In manchen LangChain-Versionen steckt das Artefakt direkt in observation
+        if artifact is None and isinstance(observation, (list, tuple)):
+            # vielleicht schon die Liste selbst
+            artifact = observation
+
+        if not artifact:
+            continue
+
+        # Normalisiere zu Liste von Quellen-Strings
+        if isinstance(artifact, dict):
+            artifact = [artifact]
+        if not isinstance(artifact, (list, tuple)):
+            artifact = [artifact]
+
+        for item in artifact:
+            src = None
+            if isinstance(item, dict):
+                src = item.get("source")
+            else:
+                # fallbacks
+                src = str(item)
+            if src:
+                found_sources.append(src)
+
+    # Deduplizieren, Reihenfolge beibehalten
+    unique_sources = list(dict.fromkeys(found_sources))
+
+    if not unique_sources:
+        return ""
+
+    # Baue HTML (Tooltip), sicher escapen
+    html_spans = []
+    for src in unique_sources:
+        title = html.escape(str(src), quote=True)
+        html_spans.append(
+            f"<span style='color:gray; font-size:small; cursor:help;' title='{title}'>Quelle</span>"
+        )
+    return "<br>".join(html_spans)
 
 # ---- Streamlit UI ----
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
@@ -152,15 +245,11 @@ if user_question:
         })
 
     ai_message = result["output"]
-    sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources)))
+    # NEU: Quellen sauber aus den intermediate_steps extrahieren
+    quelle_html = build_sources_html_from_steps(result)
 
     with st.chat_message("assistant"):
-        if unique_sources:
-            quelle_html = "<br>".join(
-                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
-                for src in unique_sources
-            )
+        if quelle_html:
             st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
         else:
             st.markdown(ai_message, unsafe_allow_html=True)
