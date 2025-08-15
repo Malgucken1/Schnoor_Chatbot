@@ -97,7 +97,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ---- Datei Upload in Sidebar ----
+    # ---- Datei Upload + Verarbeitung in Sidebar ----
     uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
     if uploaded_file is not None:
         file_content = None
