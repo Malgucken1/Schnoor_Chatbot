@@ -1,87 +1,90 @@
 import os
+import io
 from dotenv import load_dotenv
 import streamlit as st
-import io
 from PyPDF2 import PdfReader
 import docx
 
-# langchain imports
-from langchain.agents import AgentExecutor
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_tool_calling_agent
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain import hub
 from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_openai import OpenAIEmbeddings
 from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_core.messages import HumanMessage, AIMessage
 
-# ---- Load environment variables ----
+# -------------------- ENV & INIT --------------------
 load_dotenv()
 
-# ---- Initialize Supabase ----
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
-
-# ---- Cached initializations ----
 @st.cache_resource
-def init_embeddings_vectorstore():
+def init_supabase():
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+    return create_client(supabase_url, supabase_key)
+
+@st.cache_resource
+def init_vectorstore():
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    vector_store = SupabaseVectorStore(
+    return SupabaseVectorStore(
         embedding=embeddings,
-        client=supabase,
+        client=init_supabase(),
         table_name="documents",
         query_name="match_documents",
     )
-    return vector_store
 
 @st.cache_resource
 def init_agent():
-    vector_store = init_embeddings_vectorstore()
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    prompt = hub.pull("hwchase17/openai-functions-agent")
-    
-    @tool(response_format="content_and_artifact")
-    def retrieve(query: str):
-        retrieved_docs = vector_store.similarity_search(query, k=2)
-        serialized_content = "\n\n".join(
-            f"Content: {doc.page_content}\n\nQuelle: {os.path.basename(doc.metadata.get('source', 'Unbekannte Quelle'))}"
-            for doc in retrieved_docs
-        )
-        # Als Artifact geben wir nur Dateinamen zurück
-        sources = [os.path.basename(doc.metadata.get("source", "Unbekannte Quelle")) for doc in retrieved_docs]
-        return serialized_content, sources
-
+    try:
+        prompt = hub.pull("hwchase17/openai-functions-agent")
+    except Exception as e:
+        st.error(f"Prompt konnte nicht geladen werden: {e}")
+        prompt = None
     tools = [retrieve]
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-    return agent_executor
+    agent = create_tool_calling_agent(llm, tools, prompt) if prompt else None
+    return llm, AgentExecutor(agent=agent, tools=tools, verbose=True) if agent else None
 
-# ---- Initialize AgentExecutor only once ----
-agent_executor = init_agent()
+vector_store = init_vectorstore()
 
-# ---- Helper for chat titles ----
-def generate_chat_title(first_prompt: str) -> str:
-    response = agent_executor.agent.llm.predict(
-        f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
+# -------------------- TOOLS --------------------
+@tool(response_format="content_and_artifact")
+def retrieve(query: str):
+    try:
+        retrieved_docs = vector_store.similarity_search(query, k=2)
+    except Exception as e:
+        return f"Fehler bei der Suche: {e}", []
+
+    serialized_content = "\n\n".join(
+        f"Content: {doc.page_content or ''}\n\n"
+        f"<span style='color:gray; font-size:small; cursor:help;' "
+        f"title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
+        for doc in retrieved_docs
     )
-    title = response.strip().strip('"').strip("'")
-    if not title:
-        title = f"Chat {len(st.session_state.chats) + 1}"
-    return title
+    return serialized_content, retrieved_docs
 
-# ---- Streamlit UI ----
+# -------------------- CHAT TITLE --------------------
+def generate_chat_title(first_prompt: str) -> str:
+    llm, _ = init_agent()
+    try:
+        response = llm.invoke(
+            f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
+        )
+        title = getattr(response, "content", "").strip().strip('"').strip("'")
+    except Exception as e:
+        st.warning(f"Titelgenerierung fehlgeschlagen: {e}")
+        title = ""
+    return title or f"Chat {len(st.session_state.chats) + 1}"
+
+# -------------------- STREAMLIT UI --------------------
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 st.title("🤖 Schnoor´s Chatbot")
 
-# ---- Session State ----
 if "chats" not in st.session_state:
     st.session_state.chats = {"Neuer Chat": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Neuer Chat"
 
-# ---- Sidebar ----
+# -------------------- SIDEBAR --------------------
 with st.sidebar:
     st.header("Chats")
     selected_chat = st.selectbox(
@@ -97,17 +100,17 @@ with st.sidebar:
         st.session_state.current_chat = placeholder_chat_name
 
     st.markdown("---")
-
     uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
-file_content = None
 
-if uploaded_file is not None:
+# -------------------- DATEI-VERARBEITUNG --------------------
+file_content = None
+if uploaded_file:
     try:
         if uploaded_file.type == "text/plain":
-            file_content = uploaded_file.read().decode("utf-8")
+            file_content = uploaded_file.read().decode("utf-8", errors="ignore")
         elif uploaded_file.type == "application/pdf":
             pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
-            file_content = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+            file_content = "\n".join(filter(None, (page.extract_text() for page in pdf_reader.pages)))
         elif uploaded_file.type in [
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/msword"
@@ -118,26 +121,20 @@ if uploaded_file is not None:
             file_content = "<Dateityp wird nicht unterstützt>"
     except Exception as e:
         file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
-
+    
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
         st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
         st.success("Datei-Inhalt zum Chat hinzugefügt!")
 
-# ---- Chatverlauf anzeigen ----
+# -------------------- CHATVERLAUF --------------------
 for message in st.session_state.chats[st.session_state.current_chat]:
-    if isinstance(message, HumanMessage):
-        with st.chat_message("user"):
-            st.markdown(message.content)
-    elif isinstance(message, AIMessage):
-        with st.chat_message("assistant"):
-            st.markdown(message.content, unsafe_allow_html=True)
+    with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
+        st.markdown(message.content, unsafe_allow_html=True)
 
-# ---- User Input ----
+# -------------------- USER INPUT --------------------
 user_question = st.chat_input("Frag mich was!")
-
 if user_question:
     current = st.session_state.current_chat
-
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
@@ -148,22 +145,31 @@ if user_question:
     with st.chat_message("user"):
         st.markdown(user_question)
 
-    with st.spinner("Agent antwortet..."):
-        result = agent_executor.invoke({
-            "input": user_question,
-            "chat_history": st.session_state.chats[current]
-        })
-    # AI-Nachricht und Quellen
-    ai_message = result["output"]
-    sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources)))
+    _, agent_executor = init_agent()
+    if agent_executor:
+        try:
+            with st.spinner("Agent antwortet..."):
+                result = agent_executor.invoke({
+                    "input": user_question,
+                    "chat_history": st.session_state.chats[current]
+                })
 
-    with st.chat_message("assistant"):
-    if unique_sources:
-        quelle_text = "\n".join(f"Quelle: {src}" for src in unique_sources)
-        st.markdown(f"{ai_message}\n\n{quelle_text}")
+            ai_message = result.get("output", "")
+            sources = result.get("sources", [])
+            unique_sources = list(dict.fromkeys(filter(None, sources)))
+
+            with st.chat_message("assistant"):
+                if unique_sources:
+                    quelle_html = "<br>".join(
+                        f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
+                        for src in unique_sources
+                    )
+                    st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
+                else:
+                    st.markdown(ai_message, unsafe_allow_html=True)
+
+            st.session_state.chats[current].append(AIMessage(ai_message))
+        except Exception as e:
+            st.error(f"Fehler beim Abrufen der Antwort: {e}")
     else:
-        st.markdown(ai_message)
-
-    # AIMessage speichern
-    st.session_state.chats[current].append(AIMessage(ai_message))
+        st.error("Agent konnte nicht initialisiert werden.")
