@@ -151,7 +151,7 @@ if user_question:
         result = agent_executor.invoke({"input": user_question, "chat_history": st.session_state.chats[current]})
 
     ai_message = result["output"]
-sources = result.get("artifacts", {}).get("sources", [])
+sources = result.get("sources", [])  
 
 # Nur eindeutige, nicht-leere Quellen
 unique_sources = list(dict.fromkeys(filter(None, sources)))
