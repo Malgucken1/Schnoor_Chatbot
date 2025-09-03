@@ -28,21 +28,17 @@ supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # ----- Retrieval Tool -----
-@tool(response_format="content_and_artifact")
+@tool
 def retrieve(query: str):
-    """
-    Retrieve information related to a query from the vector store.
-    Returns content and sources with HTML tooltip.
-    """
     retrieved_docs = vector_store.similarity_search(query, k=2)
-    
-    serialized_content = "\n\n".join(
-        f"Content: {doc.page_content}\n\n"
-        f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
-        for doc in retrieved_docs
-    )
-    
-    return serialized_content, retrieved_docs
+
+    serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+    sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
+
+    return {
+        "content": serialized_content,
+        "sources": sources
+    }
 
 # ----- Caching -----
 @st.cache_resource
@@ -161,18 +157,15 @@ if user_question:
 
     # AI-Nachricht und Quellen
     ai_message = result["output"]
-    sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources)))
+sources = result.get("sources", [])
+unique_sources = list(dict.fromkeys(filter(None, sources)))
 
-    with st.chat_message("assistant"):
-        if unique_sources:
-            quelle_html = "<br>".join(
-                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
-                for src in unique_sources
-            )
-            st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
-        else:
-            st.markdown(ai_message, unsafe_allow_html=True)
+with st.chat_message("assistant"):
+    st.markdown(ai_message, unsafe_allow_html=True)
+    if unique_sources:
+        st.markdown("**Quellen:**")
+        for src in unique_sources:
+            st.markdown(f"- {src}")
 
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
