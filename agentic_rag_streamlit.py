@@ -1,12 +1,12 @@
+import streamlit as st
+# muss als allererstes Streamlit-Kommando kommen!
+st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
+
 import os
 from dotenv import load_dotenv
-import streamlit as st
 import io
 from PyPDF2 import PdfReader
 import docx
-
-# muss als allererstes Streamlit-Kommando kommen!
-st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 
 # langchain imports
 from langchain.agents import AgentExecutor
@@ -122,3 +122,57 @@ if uploaded_file is not None:
         else:
             file_content = "<Dateityp wird nicht unterstützt>"
     except Exception as e:
+        file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
+    
+    if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
+        st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
+        st.success("Datei-Inhalt zum Chat hinzugefügt!")
+
+# Chatverlauf anzeigen
+for message in st.session_state.chats[st.session_state.current_chat]:
+    if isinstance(message, HumanMessage):
+        with st.chat_message("user"):
+            st.markdown(message.content)
+    elif isinstance(message, AIMessage):
+        with st.chat_message("assistant"):
+            st.markdown(message.content, unsafe_allow_html=True)
+
+# User Input
+user_question = st.chat_input("Frag mich was!")
+
+if user_question:
+    current = st.session_state.current_chat
+
+    if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
+        new_title = generate_chat_title(user_question)
+        st.session_state.chats[new_title] = st.session_state.chats.pop(current)
+        st.session_state.current_chat = new_title
+        current = new_title
+
+    st.session_state.chats[current].append(HumanMessage(user_question))
+    with st.chat_message("user"):
+        st.markdown(user_question)
+
+    with st.spinner("Agent antwortet..."):
+        result = agent_executor.invoke({
+            "input": user_question,
+            "chat_history": st.session_state.chats[current]
+        })
+
+    # AI-Nachricht und Quellen
+    ai_message = result["output"]
+    sources = result.get("sources", [])
+    unique_sources = list(dict.fromkeys(filter(None, sources)))
+
+    with st.chat_message("assistant"):
+        if unique_sources:
+            quelle_html = "<br>".join(
+                f"<span style='color:gray; font-size:small; cursor:help;' title='{src}'>Quelle</span>"
+                for src in unique_sources
+            )
+            st.markdown(f"{ai_message}<br><br>{quelle_html}", unsafe_allow_html=True)
+        else:
+            st.markdown(ai_message, unsafe_allow_html=True)
+
+    # AIMessage speichern
+    st.session_state.chats[current].append(AIMessage(ai_message))
