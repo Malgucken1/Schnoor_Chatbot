@@ -157,15 +157,15 @@ if user_question:
 
     # AI-Nachricht und Quellen
     ai_message = result["output"]
-sources = result.get("sources", [])
-unique_sources = list(dict.fromkeys(filter(None, sources)))
+    sources = result.get("sources", [])
+    unique_sources = list(dict.fromkeys(filter(None, sources)))
 
-with st.chat_message("assistant"):
-    st.markdown(ai_message, unsafe_allow_html=True)
-    if unique_sources:
-        st.markdown("**Quellen:**")
-        for src in unique_sources:
-            st.markdown(f"- {src}")
+    with st.chat_message("assistant"):
+        st.markdown(ai_message, unsafe_allow_html=True)
+        if unique_sources:
+            st.markdown("**Quellen:**")
+            for src in unique_sources:
+                st.markdown(f"- {src}")
 
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
