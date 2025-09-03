@@ -32,8 +32,11 @@ supabase: Client = create_client(supabase_url, supabase_key)
 def retrieve(query: str):
     retrieved_docs = vector_store.similarity_search(query, k=2)
 
+    # Inhalte zusammenfassen
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-    sources = [doc.metadata.get("source", "Unbekannte Quelle") for doc in retrieved_docs]
+
+    # Nur Dateiname aus source extrahieren
+    sources = [os.path.basename(doc.metadata.get("source", "Unbekannte Quelle")) for doc in retrieved_docs]
 
     return {
         "content": serialized_content,
