@@ -163,9 +163,9 @@ if user_question:
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
         if unique_sources:
-            st.markdown("**Quellen:**")
-            for src in unique_sources:
-                st.markdown(f"- {src}")
+           st.markdown("**Quellen:**")
+           for src in unique_sources:
+               st.markdown(f"- `{src}`")  # <-- Backticks verhindern Link
 
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
