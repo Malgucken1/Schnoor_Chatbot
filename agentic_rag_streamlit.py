@@ -160,20 +160,32 @@ if user_question:
         st.markdown(user_question)
 
     with st.spinner("Agent antwortet..."):
+        # Hier die "unsichtbare Zusatzfrage"
+        augmented_question = f"""
+        {user_question}
+
+        ---
+        Wichtig: Gib zusätzlich immer den Dokumentennamen zurück,
+        aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
+        Format: 'Quelle: <Dateiname>'
+        """
         result = agent_executor.invoke({
-            "input": user_question,
+            "input": augmented_question,
             "chat_history": st.session_state.chats[current]
         })
 
-    # AI-Nachricht und Quellen
     ai_message = result["output"]
-    sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources)))
 
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
-        if unique_sources:
-            st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
 
+    st.session_state.chats[current].append(AIMessage(ai_message))
+
+    # AI-Nachricht und Quellen
+    ai_message = result["output"]
+
+    with st.chat_message("assistant"):
+        st.markdown(ai_message, unsafe_allow_html=True)
+        
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
