@@ -74,7 +74,9 @@ def generate_chat_title(first_prompt: str) -> str:
         f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
     )
     title = response.strip().strip('"').strip("'")
-    return title if title else f"Chat {len(st.session_state.chats) + 1}"
+    if not title:
+        title = f"Chat {len(st.session_state.chats) + 1}"
+    return title
 
 # ----- Streamlit UI -----
 st.title("🤖 Schnoor´s Chatbot")
@@ -129,16 +131,18 @@ if uploaded_file is not None:
 
 # Chatverlauf anzeigen
 for message in st.session_state.chats[st.session_state.current_chat]:
-    with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
-        st.markdown(message.content, unsafe_allow_html=True)
+    if isinstance(message, HumanMessage):
+        with st.chat_message("user"):
+            st.markdown(message.content)
+    elif isinstance(message, AIMessage):
+        with st.chat_message("assistant"):
+            st.markdown(message.content, unsafe_allow_html=True)
 
 # User Input
 user_question = st.chat_input("Frag mich was!")
 
 if user_question:
     current = st.session_state.current_chat
-
-    # neuen Chattitel generieren
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
@@ -149,11 +153,10 @@ if user_question:
     with st.chat_message("user"):
         st.markdown(user_question)
 
-    # Agentaufruf mit unsichtbarem Prompt für Dateiname
+    # --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
     with st.spinner("Agent antwortet..."):
         augmented_question = f"""
         {user_question}
-
         ---
         Wichtig: Gib zusätzlich immer den Dokumentennamen zurück,
         aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
@@ -165,13 +168,16 @@ if user_question:
         })
 
     ai_message = result["output"]
-    sources = result.get("sources", [])
 
-    # AI-Nachricht + Quelle anzeigen
+    # AI-Nachricht anzeigen
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
-        if sources:
-            st.markdown(f"_Quelle: {', '.join(sources)}_")
 
     # AIMessage speichern
+    st.session_state.chats[current].append(AIMessage(ai_message))
+
+    # AI-Nachricht und Quellen nochmal (falls nötig)
+    ai_message = result["output"]
+    with st.chat_message("assistant"):
+        st.markdown(ai_message, unsafe_allow_html=True)
     st.session_state.chats[current].append(AIMessage(ai_message))
