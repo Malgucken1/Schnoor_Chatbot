@@ -29,7 +29,7 @@ supabase: Client = create_client(supabase_url, supabase_key)
 # ----- Retrieval Tool -----
 @tool
 def retrieve(query: str):
-    retrieved_docs = vector_store.similarity_search(query, k=2)
+    retrieved_docs = vector_store.similarity_search(query, k=1)
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
     # Nur den Dateinamen verwenden
@@ -164,7 +164,7 @@ with st.spinner("Agent antwortet..."):
     """
 
     # Suche die relevanten Dokumente
-    retrieved_docs = vector_store.similarity_search(user_question, k=2)
+    retrieved_docs = vector_store.similarity_search(user_question, k=1)
     sources = [os.path.basename(doc.metadata.get("source", "")) for doc in retrieved_docs]
 
     # Kombiniere den Inhalt für das LLM
