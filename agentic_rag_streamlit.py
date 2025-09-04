@@ -28,20 +28,16 @@ supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # ----- Retrieval Tool -----
-import os
-
 @tool
 def retrieve(query: str):
     retrieved_docs = vector_store.similarity_search(query, k=2)
-
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
-    # Nur den Dateinamen verwenden
+    # Nur den Dateinamen als Quelle
     sources = []
     for doc in retrieved_docs:
         src = doc.metadata.get("source", "")
         if src:
-            # nur den Dateinamen extrahieren
             filename = os.path.basename(src)
             sources.append(filename)
 
@@ -108,9 +104,9 @@ with st.sidebar:
         st.session_state.current_chat = placeholder_chat_name
 
     st.markdown("---")
-
     uploaded_file = st.file_uploader("Datei hochladen", type=["txt", "pdf", "docx"])
 
+# Datei-Inhalt lesen
 file_content = None
 if uploaded_file is not None:
     try:
@@ -129,7 +125,7 @@ if uploaded_file is not None:
             file_content = "<Dateityp wird nicht unterstützt>"
     except Exception as e:
         file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
-    
+
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
         st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
         st.success("Datei-Inhalt zum Chat hinzugefügt!")
@@ -159,8 +155,8 @@ if user_question:
     with st.chat_message("user"):
         st.markdown(user_question)
 
+    # --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
     with st.spinner("Agent antwortet..."):
-        # Hier die "unsichtbare Zusatzfrage"
         augmented_question = f"""
         {user_question}
 
@@ -176,16 +172,9 @@ if user_question:
 
     ai_message = result["output"]
 
+    # AI-Nachricht anzeigen
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
 
-    st.session_state.chats[current].append(AIMessage(ai_message))
-
-    # AI-Nachricht und Quellen
-    ai_message = result["output"]
-
-    with st.chat_message("assistant"):
-        st.markdown(ai_message, unsafe_allow_html=True)
-        
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
