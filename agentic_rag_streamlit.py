@@ -143,43 +143,43 @@ user_question = st.chat_input("Frag mich was!")
 
 if user_question:
     current = st.session_state.current_chat
-
-    # Neuer Chat-Titel, falls nötig
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
         st.session_state.current_chat = new_title
         current = new_title
 
-    # UserMessage speichern
     st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
-
-    # ----- Retrieval -----
-    retrieved_docs = vector_store.similarity_search(user_question, k=2)
-    serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-    sources = list(dict.fromkeys([
-        os.path.basename(doc.metadata.get("source", ""))
-        for doc in retrieved_docs
-        if doc.metadata.get("source")
-    ]))
-
-    # ----- LLM antwortet basierend auf Retrieval-Text -----
-    llm_input = f"""
-    Beantworte die folgende Frage basierend auf dem bereitgestellten Text.
-    Text:
-    {serialized_content}
-
-    Frage: {user_question}
+    
+# --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
+with st.spinner("Agent antwortet..."):
+    augmented_question = f"""
+    {user_question}
+    ---
+    Wichtig: Gib immer den Dokumentennamen zurück,
+    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
+    Format: 'Quelle: <Dateiname>'
     """
-    ai_message = llm.predict(llm_input)
+    result = agent_executor.invoke({
+        "input": augmented_question,
+        "chat_history": st.session_state.chats[current]
+    })
 
-    # AI-Nachricht und Quellen anzeigen
-    with st.chat_message("assistant"):
-        st.markdown(ai_message, unsafe_allow_html=True)
-        if sources:
-            st.markdown(f"_Quelle: {', '.join(sources)}_")
+ai_message = result["output"]
 
-    # AIMessage speichern
-    st.session_state.chats[current].append(AIMessage(ai_message))
+# Quellen aus dem Retrieval nehmen (nicht aus LLM-Text)
+sources = result.get("sources", [])
+unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
+
+# AI-Nachricht und Quelle anzeigen
+with st.chat_message("assistant"):
+    st.markdown(ai_message, unsafe_allow_html=True)
+    if unique_sources:
+        st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
+
+# AIMessage speichern
+st.session_state.chats[current].append(AIMessage(ai_message))
+
+    
