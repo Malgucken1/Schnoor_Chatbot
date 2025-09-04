@@ -168,7 +168,7 @@ if user_question:
     # AI-Nachricht und Quellen
     ai_message = result["output"]
     sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources))
+    unique_sources = list(dict.fromkeys(filter(None, sources)))
 
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
