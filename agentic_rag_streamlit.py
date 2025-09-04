@@ -155,23 +155,33 @@ if user_question:
     
 # --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
 with st.spinner("Agent antwortet..."):
+    # Frage an LLM
     augmented_question = f"""
     {user_question}
     ---
-    Wichtig: Gib immer den Dokumentennamen zurück,
-    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link). Erfinde keine eigenen Quellen. Verzichte auf das referenzieren auf "Quelle". So wie hier: Für weitere Informationen können Sie die Quelle konsultieren. Das darfst du nicht.
-    Format: 'Quelle: <Dateiname>'
+    Beantworte die Frage basierend auf den Dokumenten.
+    Füge keine Quellen im Text ein, zeige die Quellen nur separat.
     """
+
+    # Suche die relevanten Dokumente
+    retrieved_docs = vector_store.similarity_search(user_question, k=2)
+    sources = [os.path.basename(doc.metadata.get("source", "")) for doc in retrieved_docs]
+
+    # Kombiniere den Inhalt für das LLM
+    context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
+
+    # LLM-Aufruf
     result = agent_executor.invoke({
         "input": augmented_question,
-        "chat_history": st.session_state.chats[current]
+        "chat_history": st.session_state.chats[current],
+        "context": context_text
     })
 
+# AI-Nachricht aus dem Ergebnis
 ai_message = result["output"]
 
-# Quellen aus dem Retrieval nehmen (nicht aus LLM-Text)
-sources = result.get("sources", [])
-unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
+# Quellen eindeutig filtern
+unique_sources = list(dict.fromkeys(filter(None, sources)))
 
 # AI-Nachricht und Quelle anzeigen
 with st.chat_message("assistant"):
