@@ -159,8 +159,7 @@ with st.spinner("Agent antwortet..."):
     {user_question}
     ---
     Wichtig: Gib immer den Dokumentennamen zurück,
-    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link). Erfinde keine Quellen. 
-    Unterlasse so etwas: Diese Informationen stammen aus der Quelle. Gib den Dokumentennamen nur zurück, wenn du den Daateinamen kennst. Ansonsten lasse es weg!
+    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link). Erfinde keine eigenen Quellen. Verzichte auf das referenzieren auf "Quelle". So wie hier: Für weitere Informationen können Sie die Quelle konsultieren. Das darfst du nicht.
     Format: 'Quelle: <Dateiname>'
     """
     result = agent_executor.invoke({
@@ -182,5 +181,3 @@ with st.chat_message("assistant"):
 
 # AIMessage speichern
 st.session_state.chats[current].append(AIMessage(ai_message))
-
-    
