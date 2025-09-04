@@ -8,10 +8,15 @@ from PyPDF2 import PdfReader
 import docx
 
 # langchain imports
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain.agents import AgentExecutor
+from langchain_openai import ChatOpenAI
+from langchain.agents import create_tool_calling_agent
+from langchain import hub
 from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_openai import OpenAIEmbeddings
+from langchain_core.tools import tool
 from supabase.client import Client, create_client
+from langchain_core.messages import HumanMessage, AIMessage
 
 # load environment variables
 load_dotenv()
@@ -20,6 +25,25 @@ load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
+
+# ----- Retrieval Tool -----
+@tool
+def retrieve(query: str):
+    retrieved_docs = vector_store.similarity_search(query, k=2)
+    serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+
+    # Nur den Dateinamen verwenden
+    sources = []
+    for doc in retrieved_docs:
+        src = doc.metadata.get("source", "")
+        if src:
+            filename = os.path.basename(src)
+            sources.append(filename)
+
+    return {
+        "content": serialized_content,
+        "sources": sources
+    }
 
 # ----- Caching -----
 @st.cache_resource
@@ -33,12 +57,16 @@ def get_vector_store():
     )
 
 @st.cache_resource
-def get_llm():
-    return ChatOpenAI(model="gpt-4o", temperature=0)
+def get_agent_executor():
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    prompt = hub.pull("hwchase17/openai-functions-agent")
+    tools = [retrieve]
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True), llm, prompt
 
 # ----- Initialisierung -----
 vector_store = get_vector_store()
-llm = get_llm()
+agent_executor, llm, prompt = get_agent_executor()
 
 # ----- Hilfsfunktion für Chat-Titel -----
 def generate_chat_title(first_prompt: str) -> str:
@@ -115,12 +143,15 @@ user_question = st.chat_input("Frag mich was!")
 
 if user_question:
     current = st.session_state.current_chat
+
+    # Neuer Chat-Titel, falls nötig
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
         st.session_state.current_chat = new_title
         current = new_title
 
+    # UserMessage speichern
     st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
@@ -128,8 +159,11 @@ if user_question:
     # ----- Retrieval -----
     retrieved_docs = vector_store.similarity_search(user_question, k=2)
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-    sources = list(dict.fromkeys([os.path.basename(doc.metadata.get("source", "")) 
-                                  for doc in retrieved_docs if doc.metadata.get("source")]))
+    sources = list(dict.fromkeys([
+        os.path.basename(doc.metadata.get("source", ""))
+        for doc in retrieved_docs
+        if doc.metadata.get("source")
+    ]))
 
     # ----- LLM antwortet basierend auf Retrieval-Text -----
     llm_input = f"""
