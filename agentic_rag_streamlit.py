@@ -28,15 +28,26 @@ supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # ----- Retrieval Tool -----
+import os
+
 @tool
 def retrieve(query: str):
     retrieved_docs = vector_store.similarity_search(query, k=2)
 
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
+    # Nur den Dateinamen verwenden
+    sources = []
+    for doc in retrieved_docs:
+        src = doc.metadata.get("source", "")
+        if src:
+            # nur den Dateinamen extrahieren
+            filename = os.path.basename(src)
+            sources.append(filename)
+
     return {
         "content": serialized_content,
-        "sources": ["interne Wissensbasis"]
+        "sources": sources
     }
 
 # ----- Caching -----
@@ -156,12 +167,13 @@ if user_question:
 
     # AI-Nachricht und Quellen
     ai_message = result["output"]
-    sources = ["interne Wissensbasis"]
+    sources = result.get("sources", [])
+    unique_sources = list(dict.fromkeys(filter(None, sources))
 
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
-        st.markdown(f"_Quelle: {', '.join(sources)}_")
-
+        if unique_sources:
+            st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
 
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
