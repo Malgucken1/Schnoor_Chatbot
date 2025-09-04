@@ -159,7 +159,8 @@ with st.spinner("Agent antwortet..."):
     {user_question}
     ---
     Wichtig: Gib immer den Dokumentennamen zurück,
-    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
+    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link). Erfinde keine Quellen. 
+    Unterlasse so etwas: Diese Informationen stammen aus der Quelle. Gib den Dokumentennamen nur zurück, wenn du den Daateinamen kennst. Ansonsten lasse es weg!
     Format: 'Quelle: <Dateiname>'
     """
     result = agent_executor.invoke({
