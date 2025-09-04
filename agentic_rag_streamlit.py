@@ -169,15 +169,16 @@ if user_question:
 
     ai_message = result["output"]
 
-    # AI-Nachricht anzeigen
+    # AI-Nachricht und Quelle anzeigen
+    sources = result.get("sources", [])
+    unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
+
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
+        if unique_sources:
+            st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
 
     # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
 
-    # AI-Nachricht und Quellen nochmal (falls nötig)
-    ai_message = result["output"]
-    with st.chat_message("assistant"):
-        st.markdown(ai_message, unsafe_allow_html=True)
-    st.session_state.chats[current].append(AIMessage(ai_message))
+    
