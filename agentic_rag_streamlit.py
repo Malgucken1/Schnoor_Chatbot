@@ -152,33 +152,34 @@ if user_question:
     st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
+    
+# --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
+with st.spinner("Agent antwortet..."):
+    augmented_question = f"""
+    {user_question}
+    ---
+    Wichtig: Gib immer den Dokumentennamen zurück,
+    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
+    Format: 'Quelle: <Dateiname>'
+    """
+    result = agent_executor.invoke({
+        "input": augmented_question,
+        "chat_history": st.session_state.chats[current]
+    })
 
-    # --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
-    with st.spinner("Agent antwortet..."):
-        augmented_question = f"""
-        {user_question}
-        ---
-        Wichtig: Gib zusätzlich immer den Dokumentennamen zurück,
-        aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
-        Format: 'Quelle: <Dateiname>'
-        """
-        result = agent_executor.invoke({
-            "input": augmented_question,
-            "chat_history": st.session_state.chats[current]
-        })
+ai_message = result["output"]
 
-    ai_message = result["output"]
+# Quellen aus dem Retrieval nehmen (nicht aus LLM-Text)
+sources = result.get("sources", [])
+unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
 
-    # AI-Nachricht und Quelle anzeigen
-    sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
+# AI-Nachricht und Quelle anzeigen
+with st.chat_message("assistant"):
+    st.markdown(ai_message, unsafe_allow_html=True)
+    if unique_sources:
+        st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
 
-    with st.chat_message("assistant"):
-        st.markdown(ai_message, unsafe_allow_html=True)
-        if unique_sources:
-            st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
-
-    # AIMessage speichern
-    st.session_state.chats[current].append(AIMessage(ai_message))
+# AIMessage speichern
+st.session_state.chats[current].append(AIMessage(ai_message))
 
     
