@@ -8,15 +8,10 @@ from PyPDF2 import PdfReader
 import docx
 
 # langchain imports
-from langchain.agents import AgentExecutor
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_tool_calling_agent
-from langchain import hub
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_openai import OpenAIEmbeddings
-from langchain_core.tools import tool
-from supabase.client import Client, create_client
 from langchain_core.messages import HumanMessage, AIMessage
+from supabase.client import Client, create_client
 
 # load environment variables
 load_dotenv()
@@ -25,25 +20,6 @@ load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
-
-# ----- Retrieval Tool -----
-@tool
-def retrieve(query: str):
-    retrieved_docs = vector_store.similarity_search(query, k=2)
-    serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-
-    # Nur den Dateinamen verwenden
-    sources = []
-    for doc in retrieved_docs:
-        src = doc.metadata.get("source", "")
-        if src:
-            filename = os.path.basename(src)
-            sources.append(filename)
-
-    return {
-        "content": serialized_content,
-        "sources": sources
-    }
 
 # ----- Caching -----
 @st.cache_resource
@@ -57,16 +33,12 @@ def get_vector_store():
     )
 
 @st.cache_resource
-def get_agent_executor():
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    prompt = hub.pull("hwchase17/openai-functions-agent")
-    tools = [retrieve]
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True), llm, prompt
+def get_llm():
+    return ChatOpenAI(model="gpt-4o", temperature=0)
 
 # ----- Initialisierung -----
 vector_store = get_vector_store()
-agent_executor, llm, prompt = get_agent_executor()
+llm = get_llm()
 
 # ----- Hilfsfunktion für Chat-Titel -----
 def generate_chat_title(first_prompt: str) -> str:
@@ -152,34 +124,28 @@ if user_question:
     st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
-    
-# --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
-with st.spinner("Agent antwortet..."):
-    augmented_question = f"""
-    {user_question}
-    ---
-    Wichtig: Gib immer den Dokumentennamen zurück,
-    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
-    Format: 'Quelle: <Dateiname>'
+
+    # ----- Retrieval -----
+    retrieved_docs = vector_store.similarity_search(user_question, k=2)
+    serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+    sources = list(dict.fromkeys([os.path.basename(doc.metadata.get("source", "")) 
+                                  for doc in retrieved_docs if doc.metadata.get("source")]))
+
+    # ----- LLM antwortet basierend auf Retrieval-Text -----
+    llm_input = f"""
+    Beantworte die folgende Frage basierend auf dem bereitgestellten Text.
+    Text:
+    {serialized_content}
+
+    Frage: {user_question}
     """
-    result = agent_executor.invoke({
-        "input": augmented_question,
-        "chat_history": st.session_state.chats[current]
-    })
+    ai_message = llm.predict(llm_input)
 
-ai_message = result["output"]
+    # AI-Nachricht und Quellen anzeigen
+    with st.chat_message("assistant"):
+        st.markdown(ai_message, unsafe_allow_html=True)
+        if sources:
+            st.markdown(f"_Quelle: {', '.join(sources)}_")
 
-# Quellen aus dem Retrieval nehmen (nicht aus LLM-Text)
-sources = result.get("sources", [])
-unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
-
-# AI-Nachricht und Quelle anzeigen
-with st.chat_message("assistant"):
-    st.markdown(ai_message, unsafe_allow_html=True)
-    if unique_sources:
-        st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
-
-# AIMessage speichern
-st.session_state.chats[current].append(AIMessage(ai_message))
-
-    
+    # AIMessage speichern
+    st.session_state.chats[current].append(AIMessage(ai_message))
