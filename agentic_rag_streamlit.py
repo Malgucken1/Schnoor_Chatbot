@@ -1,5 +1,4 @@
 import streamlit as st
-# muss als allererstes Streamlit-Kommando kommen!
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 
 import os
@@ -8,7 +7,6 @@ import io
 from PyPDF2 import PdfReader
 import docx
 
-# langchain imports
 from langchain.agents import AgentExecutor
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent
@@ -19,10 +17,9 @@ from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_core.messages import HumanMessage, AIMessage
 
-# load environment variables
 load_dotenv()
 
-# supabase init
+# Supabase init
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
@@ -34,12 +31,7 @@ def retrieve(query: str):
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
     # Nur den Dateinamen als Quelle
-    sources = []
-    for doc in retrieved_docs:
-        src = doc.metadata.get("source", "")
-        if src:
-            filename = os.path.basename(src)
-            sources.append(filename)
+    sources = [os.path.basename(doc.metadata.get("source", "")) for doc in retrieved_docs if doc.metadata.get("source")]
 
     return {
         "content": serialized_content,
@@ -75,20 +67,18 @@ def generate_chat_title(first_prompt: str) -> str:
         f"Erzeuge einen kurzen, prägnanten Titel für einen Chat basierend auf diesem Text: '{first_prompt}'"
     )
     title = response.strip().strip('"').strip("'")
-    if not title:
-        title = f"Chat {len(st.session_state.chats) + 1}"
-    return title
+    return title if title else f"Chat {len(st.session_state.chats) + 1}"
 
 # ----- Streamlit UI -----
 st.title("🤖 Schnoor´s Chatbot")
 
-# SESSION STATE INITIALIZATION
+# SESSION STATE
 if "chats" not in st.session_state:
     st.session_state.chats = {"Neuer Chat": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Neuer Chat"
 
-# SIDEBAR mit Chat-Verzeichnis und Datei-Upload
+# SIDEBAR
 with st.sidebar:
     st.header("Chats")
     selected_chat = st.selectbox(
@@ -132,19 +122,14 @@ if uploaded_file is not None:
 
 # Chatverlauf anzeigen
 for message in st.session_state.chats[st.session_state.current_chat]:
-    if isinstance(message, HumanMessage):
-        with st.chat_message("user"):
-            st.markdown(message.content)
-    elif isinstance(message, AIMessage):
-        with st.chat_message("assistant"):
-            st.markdown(message.content, unsafe_allow_html=True)
+    with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
+        st.markdown(message.content, unsafe_allow_html=True)
 
 # User Input
 user_question = st.chat_input("Frag mich was!")
 
 if user_question:
     current = st.session_state.current_chat
-
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
@@ -171,10 +156,12 @@ if user_question:
         })
 
     ai_message = result["output"]
+    sources = result.get("sources", [])
 
-    # AI-Nachricht anzeigen
+    # AI-Nachricht + Quelle anzeigen
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
+        if sources:
+            st.markdown(f"_Quelle: {', '.join(sources)}_")
 
-    # AIMessage speichern
     st.session_state.chats[current].append(AIMessage(ai_message))
