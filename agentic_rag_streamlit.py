@@ -28,19 +28,11 @@ supabase: Client = create_client(supabase_url, supabase_key)
 
 # ----- Retrieval Tool -----
 @tool
-def retrieve(query: str) -> str:
-    """
-    Ein Retrieval-Tool, das Dokumente basierend auf einer Anfrage sucht.
-
-    Args:
-        query (str): Die Suchanfrage.
-
-    Returns:
-        str: Gefundener Text + Quellen.
-    """
+def retrieve(query: str):
     retrieved_docs = vector_store.similarity_search(query, k=2)
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
+    # Nur den Dateinamen verwenden
     sources = []
     for doc in retrieved_docs:
         src = doc.metadata.get("source", "")
@@ -48,7 +40,10 @@ def retrieve(query: str) -> str:
             filename = os.path.basename(src)
             sources.append(filename)
 
-    return f"{serialized_content}\n\nQuellen: {', '.join(sources)}"
+    return {
+        "content": serialized_content,
+        "sources": sources
+    }
 
 # ----- Caching -----
 @st.cache_resource
@@ -160,33 +155,23 @@ if user_question:
     
 # --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
 with st.spinner("Agent antwortet..."):
-    # Frage an LLM
     augmented_question = f"""
     {user_question}
     ---
-    Beantworte die Frage basierend auf den Dokumenten.
-    Füge keine Quellen im Text ein, zeige die Quellen nur separat.
+    Wichtig: Gib immer den Dokumentennamen zurück,
+    aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
+    Format: 'Quelle: <Dateiname>'
     """
-
-    # Suche die relevanten Dokumente
-    retrieved_docs = vector_store.similarity_search(user_question, k=2)
-    sources = [os.path.basename(doc.metadata.get("source", "")) for doc in retrieved_docs]
-
-    # Kombiniere den Inhalt für das LLM
-    context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
-
-    # LLM-Aufruf
     result = agent_executor.invoke({
         "input": augmented_question,
-        "chat_history": st.session_state.chats[current],
-        "context": context_text
+        "chat_history": st.session_state.chats[current]
     })
 
-# AI-Nachricht aus dem Ergebnis
 ai_message = result["output"]
 
-# Quellen eindeutig filtern
-unique_sources = list(dict.fromkeys(filter(None, sources)))
+# Quellen aus dem Retrieval nehmen (nicht aus LLM-Text)
+sources = result.get("sources", [])
+unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
 
 # AI-Nachricht und Quelle anzeigen
 with st.chat_message("assistant"):
