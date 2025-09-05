@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import io
 from PyPDF2 import PdfReader
 import docx
+from typing import List
+from pydantic import BaseModel
 
 # langchain imports
 from langchain.agents import AgentExecutor
@@ -26,9 +28,14 @@ supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
+# ----- Pydantic Output für Tool -----
+class RetrieveOutput(BaseModel):
+    content: str
+    sources: List[str]
+
 # ----- Retrieval Tool -----
 @tool
-def retrieve(query: str):
+def retrieve(query: str) -> RetrieveOutput:
     retrieved_docs = vector_store.similarity_search(query, k=1)
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
@@ -40,10 +47,7 @@ def retrieve(query: str):
             filename = os.path.basename(src)
             sources.append(filename)
 
-    return {
-        "content": serialized_content,
-        "sources": sources
-    }
+    return RetrieveOutput(content=serialized_content, sources=sources)
 
 # ----- Caching -----
 @st.cache_resource
