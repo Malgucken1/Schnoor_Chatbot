@@ -1,72 +1,85 @@
-import streamlit as st  # muss als allererstes Streamlit-Kommando kommen!
-st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
-
+# import basics
 import os
 from dotenv import load_dotenv
 import io
 from PyPDF2 import PdfReader
 import docx
 
-# langchain imports
+# import streamlit
+import streamlit as st
+
+# import langchain
 from langchain.agents import AgentExecutor
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain.agents import create_tool_calling_agent
 from langchain import hub
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.tools import tool
+
+# import supabase db
 from supabase.client import Client, create_client
-from langchain_core.messages import HumanMessage, AIMessage
 
 # load environment variables
-load_dotenv()
+load_dotenv()  
 
-# supabase init
+# initiating supabase
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
-# ----- Retrieval Tool -----
-@tool
+# initiating embeddings model
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+# initiating vector store
+vector_store = SupabaseVectorStore(
+    embedding=embeddings,
+    client=supabase,
+    table_name="documents",
+    query_name="match_documents",
+)
+ 
+# initiating llm
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# pulling prompt from hub
+prompt = hub.pull("hwchase17/openai-functions-agent")
+
+
+# creating the retriever tool
+@tool(response_format="content_and_artifact")
 def retrieve(query: str):
+    """Retrieve information related to a query."""
     retrieved_docs = vector_store.similarity_search(query, k=2)
-    serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-
-    # Nur den Dateinamen verwenden
-    sources = []
-    for doc in retrieved_docs:
-        src = doc.metadata.get("source", "")
-        if src:
-            filename = os.path.basename(src)
-            sources.append(filename)
-
-    return {
-        "content": serialized_content,
-        "sources": sources
-    }
-
-# ----- Caching -----
-@st.cache_resource
-def get_vector_store():
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    return SupabaseVectorStore(
-        embedding=embeddings,
-        client=supabase,
-        table_name="documents",
-        query_name="match_documents",
+    serialized = "\n\n".join(
+        # Hier das Wort "Quelle" mit grauer, kleiner Schrift und Tooltip mit PDF-Namen:
+        f"Content: {doc.page_content}\n\n"
+        f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
+        for doc in retrieved_docs
     )
+    return serialized, retrieved_docs
 
-@st.cache_resource
-def get_agent_executor():
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    prompt = hub.pull("hwchase17/openai-functions-agent")
-    tools = [retrieve]
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True), llm, prompt
+# combining all tools
+tools = [retrieve]
 
-# ----- Initialisierung -----
-vector_store = get_vector_store()
-agent_executor, llm, prompt = get_agent_executor()
+# initiating the agent
+agent = create_tool_calling_agent(llm, tools, prompt)
+
+# create the agent executor
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+# initiating streamlit app
+st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🦜")
+st.title("🦜 Schnoor - Agentic RAG Chatbot")
+
+# SESSION STATE INITIALIZATION
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "current_chat" not in st.session_state:
+    st.session_state.current_chat = "Neuer Chat"
+if "chats" not in st.session_state:
+    st.session_state.chats = {"Neuer Chat": []}
 
 # ----- Hilfsfunktion für Chat-Titel -----
 def generate_chat_title(first_prompt: str) -> str:
@@ -78,16 +91,7 @@ def generate_chat_title(first_prompt: str) -> str:
         title = f"Chat {len(st.session_state.chats) + 1}"
     return title
 
-# ----- Streamlit UI -----
-st.title("🤖 Schnoor´s Chatbot")
-
-# SESSION STATE INITIALIZATION
-if "chats" not in st.session_state:
-    st.session_state.chats = {"Neuer Chat": []}
-if "current_chat" not in st.session_state:
-    st.session_state.current_chat = "Neuer Chat"
-
-# SIDEBAR mit Chat-Verzeichnis und Datei-Upload
+# ----- Sidebar: Chat-Auswahl und Datei-Upload -----
 with st.sidebar:
     st.header("Chats")
     selected_chat = st.selectbox(
@@ -126,10 +130,16 @@ if uploaded_file is not None:
         file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
 
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
+        # Automatisch Chat-Titel erstellen, wenn "Neuer Chat"
+        if st.session_state.current_chat == "Neuer Chat" or st.session_state.current_chat.endswith("(neuer Chat)"):
+            new_title = generate_chat_title(file_content)
+            st.session_state.chats[new_title] = []
+            st.session_state.current_chat = new_title
+
         st.session_state.chats[st.session_state.current_chat].append(HumanMessage(file_content))
         st.success("Datei-Inhalt zum Chat hinzugefügt!")
 
-# Chatverlauf anzeigen
+# ----- Chat-Verlauf anzeigen -----
 for message in st.session_state.chats[st.session_state.current_chat]:
     if isinstance(message, HumanMessage):
         with st.chat_message("user"):
@@ -138,11 +148,12 @@ for message in st.session_state.chats[st.session_state.current_chat]:
         with st.chat_message("assistant"):
             st.markdown(message.content, unsafe_allow_html=True)
 
-# User Input
+# ----- User Input -----
 user_question = st.chat_input("Frag mich was!")
 
 if user_question:
     current = st.session_state.current_chat
+    # Automatische Titelgenerierung beim ersten User-Eingang
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
@@ -152,33 +163,16 @@ if user_question:
     st.session_state.chats[current].append(HumanMessage(user_question))
     with st.chat_message("user"):
         st.markdown(user_question)
-
-    # --- Agentaufruf mit unsichtbarem Prompt für Dateiname ---
+    
+    # --- Agentaufruf ---
     with st.spinner("Agent antwortet..."):
-        augmented_question = f"""
-        {user_question}
-        ---
-        Wichtig: Gib zusätzlich immer den Dokumentennamen zurück,
-        aus dem die Antwort stammt (nur den Dateinamen, kein Pfad, kein Link).
-        Format: 'Quelle: <Dateiname>'
-        """
         result = agent_executor.invoke({
-            "input": augmented_question,
+            "input": user_question,
             "chat_history": st.session_state.chats[current]
         })
 
     ai_message = result["output"]
 
-    # AI-Nachricht und Quelle anzeigen
-    sources = result.get("sources", [])
-    unique_sources = list(dict.fromkeys(filter(None, sources)))  # Duplikate entfernen
-
     with st.chat_message("assistant"):
         st.markdown(ai_message, unsafe_allow_html=True)
-        if unique_sources:
-            st.markdown(f"_Quelle: {', '.join(unique_sources)}_")
-
-    # AIMessage speichern
-    st.session_state.chats[current].append(AIMessage(ai_message))
-
-    
+        st.session_state.chats[current].append(AIMessage(ai_message))
