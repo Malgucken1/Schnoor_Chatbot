@@ -16,7 +16,7 @@ from langchain.agents import create_tool_calling_agent
 from langchain import hub
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_openai import OpenAIEmbeddings
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
 from supabase.client import Client, create_client
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -28,18 +28,16 @@ supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
-# ----- Pydantic Output für Tool -----
+# ----- Input/Output-Modelle für Tool -----
 class RetrieveOutput(BaseModel):
     content: str
     sources: List[str]
 
-# ----- Retrieval Tool -----
-@tool
-def retrieve(query: str) -> RetrieveOutput:
+# ----- Retrieval Funktion -----
+def retrieve_func(query: str) -> RetrieveOutput:
     retrieved_docs = vector_store.similarity_search(query, k=1)
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
-    # Nur den Dateinamen verwenden
     sources = []
     for doc in retrieved_docs:
         src = doc.metadata.get("source", "")
@@ -48,6 +46,13 @@ def retrieve(query: str) -> RetrieveOutput:
             sources.append(filename)
 
     return RetrieveOutput(content=serialized_content, sources=sources)
+
+# ----- StructuredTool -----
+retrieve_tool = StructuredTool.from_function(
+    func=retrieve_func,
+    name="retrieve",
+    description="Sucht relevante Dokumente im Vektorstore basierend auf einer Query.",
+)
 
 # ----- Caching -----
 @st.cache_resource
@@ -64,7 +69,7 @@ def get_vector_store():
 def get_agent_executor():
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
     prompt = hub.pull("hwchase17/openai-functions-agent")
-    tools = [retrieve]
+    tools = [retrieve_tool]
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(agent=agent, tools=tools, verbose=True), llm, prompt
 
