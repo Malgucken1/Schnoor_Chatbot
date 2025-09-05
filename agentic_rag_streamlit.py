@@ -28,11 +28,19 @@ supabase: Client = create_client(supabase_url, supabase_key)
 
 # ----- Retrieval Tool -----
 @tool
-def retrieve(query: str):
+def retrieve(query: str) -> str:
+    """
+    Ein Retrieval-Tool, das Dokumente basierend auf einer Anfrage sucht.
+
+    Args:
+        query (str): Die Suchanfrage.
+
+    Returns:
+        str: Gefundener Text + Quellen.
+    """
     retrieved_docs = vector_store.similarity_search(query, k=2)
     serialized_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
-    # Nur den Dateinamen verwenden
     sources = []
     for doc in retrieved_docs:
         src = doc.metadata.get("source", "")
@@ -40,10 +48,7 @@ def retrieve(query: str):
             filename = os.path.basename(src)
             sources.append(filename)
 
-    return {
-        "content": serialized_content,
-        "sources": sources
-    }
+    return f"{serialized_content}\n\nQuellen: {', '.join(sources)}"
 
 # ----- Caching -----
 @st.cache_resource
