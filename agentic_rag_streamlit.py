@@ -1,6 +1,4 @@
 # import basics
-import os
-from dotenv import load_dotenv
 import io
 from PyPDF2 import PdfReader
 import docx
@@ -24,16 +22,18 @@ from supabase.client import Client, create_client
 # --- Streamlit Config MUSS ganz oben stehen ---
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 
-# load environment variables
-load_dotenv()  
+# ---------------- Secrets laden ----------------
+APP_PASSWORD = st.secrets["APP_PASSWORD"]
+supabase_url = st.secrets["SUPABASE_URL"]
+supabase_key = st.secrets["SUPABASE_SERVICE_KEY"]
+openai_api_key = st.secrets["OPENAI_API_KEY"]
+# ------------------------------------------------
 
 # initiating supabase
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # initiating embeddings model
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=openai_api_key)
 
 # initiating vector store
 vector_store = SupabaseVectorStore(
@@ -44,11 +44,10 @@ vector_store = SupabaseVectorStore(
 )
  
 # initiating llm
-llm = ChatOpenAI(model="gpt-4o", temperature=0)
+llm = ChatOpenAI(model="gpt-4o", temperature=0, api_key=openai_api_key)
 
 # pulling prompt from hub
 prompt = hub.pull("hwchase17/openai-functions-agent")
-
 
 # creating the retriever tool
 @tool(response_format="content_and_artifact")
@@ -56,7 +55,6 @@ def retrieve(query: str):
     """Retrieve information related to a query."""
     retrieved_docs = vector_store.similarity_search(query, k=2)
     serialized = "\n\n".join(
-        # Hier das Wort "Quelle" mit grauer, kleiner Schrift und Tooltip mit PDF-Namen:
         f"Content: {doc.page_content}\n\n"
         f"<span style='color:gray; font-size:small; cursor:help;' title='{doc.metadata.get('source', 'Unbekannte Quelle')}'>Quelle</span>"
         for doc in retrieved_docs
@@ -73,8 +71,6 @@ agent = create_tool_calling_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # ---------------- Passwortabfrage ----------------
-APP_PASSWORD = os.environ.get("APP_PASSWORD")
-
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -99,7 +95,6 @@ st.markdown(
     "<small>Du willst wissen, woher die Information stammt? Dann frage nach dem Dokumentennamen.</small>",
     unsafe_allow_html=True
 )
-
 
 # SESSION STATE INITIALIZATION
 if "messages" not in st.session_state:
@@ -158,7 +153,6 @@ if uploaded_file is not None:
         file_content = f"<Datei konnte nicht gelesen werden: {str(e)}>"
 
     if st.button("Datei-Inhalt zum Chat hinzufügen") and file_content:
-        # Automatisch Chat-Titel erstellen, wenn "Neuer Chat"
         if st.session_state.current_chat == "Neuer Chat" or st.session_state.current_chat.endswith("(neuer Chat)"):
             new_title = generate_chat_title(file_content)
             st.session_state.chats[new_title] = []
@@ -181,7 +175,6 @@ user_question = st.chat_input("Frag mich was!")
 
 if user_question:
     current = st.session_state.current_chat
-    # Automatische Titelgenerierung beim ersten User-Eingang
     if current == "Neuer Chat" or current.endswith("(neuer Chat)"):
         new_title = generate_chat_title(user_question)
         st.session_state.chats[new_title] = st.session_state.chats.pop(current)
@@ -192,7 +185,6 @@ if user_question:
     with st.chat_message("user"):
         st.markdown(user_question)
     
-    # --- Agentaufruf ---
     with st.spinner("Agent antwortet..."):
         result = agent_executor.invoke({
             "input": user_question,
