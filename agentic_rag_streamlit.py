@@ -79,8 +79,8 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title("🔒 Passwortgeschützt")
-    password_input = st.text_input("Bitte Passwort eingeben:", type="password")
+    st.title("🔒 Passwort")
+    password_input = st.text_input("Schnoor123!", type="password")
 
     if st.button("Login"):
         if password_input == APP_PASSWORD:
