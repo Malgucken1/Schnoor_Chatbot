@@ -21,6 +21,9 @@ from langchain_core.tools import tool
 # import supabase db
 from supabase.client import Client, create_client
 
+# --- Streamlit Config MUSS ganz oben stehen ---
+st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
+
 # load environment variables
 load_dotenv()  
 
@@ -87,11 +90,10 @@ if not st.session_state.authenticated:
         else:
             st.error("Falsches Passwort!")
 
-    st.stop()  # stoppt hier die App, solange kein Login
+    st.stop()
 # -------------------------------------------------
 
 # initiating streamlit app
-st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 st.title("🤖 Schnoor´s - Agentic RAG Chatbot")
 st.markdown(
     "<small>Du willst wissen, woher die Information stammt? Dann frage nach dem Dokumentennamen.</small>",
