@@ -69,6 +69,27 @@ agent = create_tool_calling_agent(llm, tools, prompt)
 # create the agent executor
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
+# ---------------- Passwortabfrage ----------------
+APP_PASSWORD = os.environ.get("APP_PASSWORD")
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔒 Passwortgeschützt")
+    password_input = st.text_input("Bitte Passwort eingeben:", type="password")
+
+    if st.button("Login"):
+        if password_input == APP_PASSWORD:
+            st.session_state.authenticated = True
+            st.success("Erfolgreich eingeloggt!")
+            st.rerun()
+        else:
+            st.error("Falsches Passwort!")
+
+    st.stop()  # stoppt hier die App, solange kein Login
+# -------------------------------------------------
+
 # initiating streamlit app
 st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
 st.title("🤖 Schnoor´s - Agentic RAG Chatbot")
