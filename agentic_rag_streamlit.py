@@ -20,7 +20,7 @@ from langchain_core.tools import tool
 from supabase.client import Client, create_client
 
 # --- Streamlit Config MUSS ganz oben stehen ---
-st.set_page_config(page_title="Schnoor - Agentic RAG Chatbot", page_icon="🤖")
+st.set_page_config(page_title="Chatbot Masterarbeit Populismus in USA, Polen und Ungarn", page_icon="🤖")
 
 # ---------------- Secrets laden ----------------
 APP_PASSWORD = st.secrets["APP_PASSWORD"]
