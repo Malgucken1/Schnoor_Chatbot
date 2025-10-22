@@ -90,7 +90,8 @@ if not st.session_state.authenticated:
 # -------------------------------------------------
 
 # initiating streamlit app
-st.title("🤖 Schnoor´s - Agentic RAG Chatbot")
+st.title("🤖 Chatbot Masterarbeit Populismus in USA, Polen und Ungarn")
+")
 st.markdown(
     "<small>Du willst wissen, woher die Information stammt? Dann frage nach dem Dokumentennamen.</small>",
     unsafe_allow_html=True
